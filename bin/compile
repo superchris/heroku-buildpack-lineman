@@ -31,8 +31,8 @@ BUILD_DIR=$1
 CACHE_DIR=$2
 LP_DIR=`cd $(dirname $0); cd ..; pwd`
 
-echo "Whats in cache?"
-echo "`ls -la $CACHE_DIR`"
+export PATH="$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby/2.0.0/bin:$CACHE_DIR/vendor/ruby-2.0.0/bin:/app/bin:$PATH:$GEM_PATH/bin"
+echo "ruby version: `ruby -v`"
 
 function error() {
   echo " !     $*" >&2
@@ -238,11 +238,11 @@ cd $BUILD_DIR
 if [ `$BUILD_DIR/node_modules/.bin/lineman config enableSass` != "false" ]
 then
   echo "-----> Installing bundler and sass gems"
+  export PATH="$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby/2.0.0/bin:$CACHE_DIR/vendor/ruby-2.0.0/bin:/app/bin:$PATH:$GEM_PATH/bin"
   export GEM_HOME="$BUILD_DIR/gems"
   export GEM_PATH=$GEM_HOME
   mkdir -p $GEM_HOME
   LANG="en_US.UTF-8" gem install bundler sass
-  export PATH="$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby/2.0.0/bin:$CACHE_DIR/vendor/ruby-2.0.0/bin:/app/bin:$PATH:$GEM_PATH/bin"
 fi
 
 

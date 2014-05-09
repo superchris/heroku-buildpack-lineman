@@ -15,7 +15,9 @@ echo "`ruby -v`"
 echo "`ls -la vendor`"
 echo $PATH
 
+echo "`cat ~/.profile.d/ruby.sh`"
 source ~/.profile.d/ruby.sh
+echo $PATH
 
 echo "ruby version: `ruby -v`"
 # debug

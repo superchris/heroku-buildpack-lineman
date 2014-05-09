@@ -8,9 +8,12 @@
 # fail fast
 set -e
 
+
 echo "---> which ruby"
 echo "`which ruby`"
 echo "`ruby -v`"
+echo "`ls -la ./bin`"
+echo "`ls -la ./vendor/bin`"
 
 # debug
 # set -x

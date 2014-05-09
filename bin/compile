@@ -12,8 +12,9 @@ set -e
 echo "---> which ruby"
 echo "`which ruby`"
 echo "`ruby -v`"
-echo "`ls -la ./bin`"
-echo "`ls -la ./vendor/bin`"
+echo "`ls -la vendor`"
+echo $PATH
+echo "`vendor/ruby-2.0.0/bin/ruby -v`"
 
 # debug
 # set -x

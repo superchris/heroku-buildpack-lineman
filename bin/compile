@@ -11,6 +11,11 @@ set -e
 echo "---> Where am i?: `pwd`"
 echo "---> which ruby"
 echo "`which ruby`"
+echo "`ruby -v`"
+echo "`ls -la vendor`"
+echo $PATH
+echo "`vendor/ruby-2.0.0/bin/ruby -v`"
+
 # debug
 # set -x
 
@@ -26,10 +31,291 @@ BUILD_DIR=$1
 CACHE_DIR=$2
 LP_DIR=`cd $(dirname $0); cd ..; pwd`
 
-export PATH="$BUILD_DIR/bin:$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby/2.0.0/bin:$CACHE_DIR/vendor/ruby-2.0.0/bin:/app/bin:$PATH:$GEM_PATH/bin"
+export PATH="$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby-2.0.0/bin:$CACHE_DIR/vendor/ruby-2.0.0/bin:/app/bin:$PATH:$GEM_PATH/bin"
 
-echo $CACHE_DIR
-echo $PATH
-echo "`ls -la $CACHE_DIR/vendor/bundle/ruby/2.0.0/bin`"
-echo "`ls -la $BUILD_DIR/bin`"
-echo "ruby version: `ruby -v`"
+function error() {
+  echo " !     $*" >&2
+  exit 1
+}
+
+function mktmpdir() {
+  dir=$(mktemp -t node-$1-XXXX)
+  rm -rf $dir
+  mkdir -p $dir
+  echo $dir
+}
+
+function indent() {
+  c='s/^/       /'
+  case $(uname) in
+    Darwin) sed -l "$c";;
+    *)      sed -u "$c";;
+  esac
+}
+
+#node setup
+
+function run_npm() {
+  command="$1"
+
+  cd $BUILD_DIR
+  HOME="$BUILD_DIR" $VENDORED_NODE/bin/node $VENDORED_NPM/cli.js $command 2>&1 | indent
+
+  if [ "${PIPESTATUS[*]}" != "0 0" ]; then
+    echo " !     Failed to $command dependencies with npm"
+    exit 1
+  fi
+}
+
+function manifest_versions() {
+  curl "http://${S3_BUCKET}.s3.amazonaws.com/manifest.${1}" -s -o - | tr -s '\n' ' '
+}
+
+function resolve_version() {
+  available_versions="$1"
+  requested_version="$2"
+  default_version="$3"
+
+  args=""
+  for version in $available_versions; do args="${args} -v \"${version}\""; done
+
+  if [ "$2" == "" ]; then
+    args="${args} -r \"${default_version}\"";
+  else
+    args="${args} -r \"${requested_version}\"";
+  fi
+
+  evaluated_versions=$(eval $bootstrap_node/bin/node $LP_DIR/vendor/node-semver/bin/semver ${args} || echo "")
+  echo "$evaluated_versions" | tail -n 1
+}
+
+function package_engine_version() {
+  version=$(cat $BUILD_DIR/package.json | $bootstrap_node/bin/node $LP_DIR/vendor/json/json engines.$1 2>/dev/null)
+  if [ $? == 0 ]; then
+    echo $version | sed -e 's/\([<>=]\) /\1/g'
+  fi
+}
+
+function package_resolve_version() {
+  engine="$1"
+  resolved_version=$(resolve_version "${engine_versions[$engine]}" "${engine_requests[$engine]}" "${engine_defaults[$engine]}")
+
+  if [ "${resolved_version}" == "" ]; then
+    error "Requested engine $engine version ${engine_requests[$engine]} does not match available versions: ${engine_versions[$engine]}"
+  else
+    echo $resolved_version
+  fi
+}
+
+function package_download() {
+  engine="$1"
+  version="$2"
+  location="$3"
+
+  mkdir -p $location
+  package="http://${S3_BUCKET}.s3.amazonaws.com/$engine-$version.tgz"
+  curl $package -s -o - | tar xzf - -C $location
+}
+
+function cat_npm_debug_log() {
+  if [ -f $BUILD_DIR/npm-debug.log ]; then
+    cat $BUILD_DIR/npm-debug.log
+  fi
+}
+
+trap cat_npm_debug_log EXIT
+
+bootstrap_node=$(mktmpdir bootstrap_node)
+package_download "nodejs" "0.4.7" $bootstrap_node
+
+# make some associative arrays
+declare -A engine_versions
+declare -A engine_defaults
+declare -A engine_requests
+
+engine_defaults["node"]="0.10.x"
+engine_defaults["npm"]="1.3.x"
+
+engine_versions["node"]=$(manifest_versions "nodejs")
+engine_requests["node"]=$(package_engine_version "node")
+
+engine_versions["npm"]=$(manifest_versions "npm")
+engine_requests["npm"]=$(package_engine_version "npm")
+
+echo "-----> Resolving engine versions"
+
+# add a warning if no version of node specified
+if [ "${engine_requests["node"]}" == "" ]; then
+  echo
+  echo "WARNING: No version of Node.js specified in package.json, see:" | indent
+  echo "https://devcenter.heroku.com/articles/nodejs-support#versions" | indent
+  echo
+fi
+
+NODE_VERSION=$(package_resolve_version "node")
+echo "Using Node.js version: ${NODE_VERSION}" | indent
+
+NPM_VERSION=$(package_resolve_version "npm")
+echo "Using npm version: ${NPM_VERSION}" | indent
+
+# cache directories
+CACHE_STORE_DIR="$CACHE_DIR/node_modules/$NODE_VERSION/$NPM_VERSION"
+CACHE_TARGET_DIR="$BUILD_DIR/node_modules"
+
+# s3 packages
+NODE_PACKAGE="http://${S3_BUCKET}.s3.amazonaws.com/nodejs-${NODE_VERSION}.tgz"
+NPM_PACKAGE="http://${S3_BUCKET}.s3.amazonaws.com/npm-${NPM_VERSION}.tgz"
+SCONS_PACKAGE="http://${S3_BUCKET}.s3.amazonaws.com/scons-${SCONS_VERSION}.tgz"
+
+# vendor directories
+VENDORED_NODE="$(mktmpdir node)"
+VENDORED_NPM="$(mktmpdir npm)"
+VENDORED_SCONS="$(mktmpdir scons)"
+
+# download and unpack packages
+echo "-----> Fetching Node.js binaries"
+package_download "nodejs" "${NODE_VERSION}" "${VENDORED_NODE}"
+package_download "npm" "${NPM_VERSION}" "${VENDORED_NPM}"
+package_download "scons" "${SCONS_VERSION}" "${VENDORED_SCONS}"
+
+# vendor node into the slug
+PATH="$BUILD_DIR/bin:$PATH"
+echo "-----> Vendoring node into slug"
+mkdir -p "$BUILD_DIR/bin"
+cp "$VENDORED_NODE/bin/node" "$BUILD_DIR/bin/node"
+
+# setting up paths for building
+PATH="$VENDORED_SCONS:$VENDORED_NODE/bin:$PATH"
+INCLUDE_PATH="$VENDORED_NODE/include"
+export CPATH="$INCLUDE_PATH:$CPATH"
+export CPPPATH="$INCLUDE_PATH:$CPPPATH"
+
+# restore node_modules cache
+if [ -d $CACHE_STORE_DIR ]; then
+  echo "-----> Restoring node_modules cache"
+  if [ -d $CACHE_TARGET_DIR ]; then
+    cp -r $CACHE_STORE_DIR/* $CACHE_TARGET_DIR/
+  else
+    cp -r $CACHE_STORE_DIR $CACHE_TARGET_DIR
+  fi
+fi
+
+# install dependencies with npm
+echo "-----> Installing dependencies with npm"
+run_npm "install"
+run_npm "rebuild"
+run_npm "prune" #<-- removes any cached dependencies that have been removed
+
+# if lineman wasn't in the package.json we need to locally install the latest verison now
+if [ ! -f $BUILD_DIR/node_modules/.bin/lineman ]; then
+  echo "------> Lineman wasn't found in the package.json. Installing latest from npm."
+  run_npm "install lineman"
+fi
+echo "Dependencies installed" | indent
+
+# cache node_modules
+if [ -d $CACHE_TARGET_DIR ]; then
+  echo "-----> Caching node_modules"
+  rm -rf $CACHE_STORE_DIR
+  mkdir -p $(dirname $CACHE_STORE_DIR)
+  cp -r $CACHE_TARGET_DIR $CACHE_STORE_DIR
+fi
+
+# build .profile.d/nodejs.sh
+echo "-----> Building runtime environment"
+mkdir -p $BUILD_DIR/.profile.d
+echo "export PATH=\"\$HOME/bin:\$HOME/node_modules/.bin:\$PATH\"" > $BUILD_DIR/.profile.d/nodejs.sh
+
+#######################
+## 2. Lineman Setup  ##
+#######################
+
+# build website with lineman
+cd $BUILD_DIR
+
+# install Bundler and Sass gems unless enableSass is false
+if [ `$BUILD_DIR/node_modules/.bin/lineman config enableSass` != "false" ]
+then
+  echo "-----> Installing bundler and sass gems"
+  export PATH="$BUILD_DIR/bin:$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby/2.0.0/bin:$CACHE_DIR/vendor/ruby-2.0.0/bin:/app/bin:$PATH:$GEM_PATH/bin"
+  export GEM_HOME="$BUILD_DIR/gems"
+  export GEM_PATH=$GEM_HOME
+  mkdir -p $GEM_HOME
+  LANG="en_US.UTF-8" gem install bundler sass
+fi
+
+
+if [ -e Gemfile ]
+then
+  echo "-----> Bundling gems"
+  bundle install
+fi
+
+echo "-----> Building static web assets with lineman"
+mkdir -p dist/js
+$BUILD_DIR/node_modules/.bin/lineman build --stack
+echo "Web assets built" | indent
+
+echo "-----> Removing development node_modules from slug"
+run_npm "prune --production"
+
+#######################
+## 3. Apache Setup   ##
+#######################
+# install apache if needed. only if Procfile doesn't have a web process
+echo "-----> Checking for Procfile and web process"
+if [ -f Procfile ]; then
+  echo "Procile exists...checking for web process" | indent
+  if [ `grep -o '^web:' Procfile` ]; then
+    echo "Found web process. No need to bundle Apache." | indent
+    exit 0
+  fi
+fi
+
+
+# config
+APACHE_VERSION="2.2.19"
+APACHE_PATH="apache"
+PHP_VERSION="5.3.6"
+PHP_PATH="php"
+
+BIN_DIR=$(dirname $0)
+LP_DIR=`cd $(dirname $0); cd ..; pwd`
+
+cd $BUILD_DIR
+
+# unpack cache
+for DIR in $APACHE_PATH $PHP_PATH ; do
+  rm -rf $DIR
+  if [ -d $CACHE_DIR/$DIR ]; then
+    cp -r $CACHE_DIR/$DIR $DIR
+  fi
+done
+
+
+
+if [ ! -d $APACHE_PATH ]; then
+  APACHE_URL="https://s3.amazonaws.com/php-lp/apache-$APACHE_VERSION.tar.gz"
+  echo "-----> Bundling Apache v$APACHE_VERSION"
+  curl --silent --max-time 60 --location $APACHE_URL | tar xz
+fi
+
+
+#copy in the httpd.conf from the buildpack
+# copy the provided configuration and tack on any user configuration in config/httpd.conf
+{ cat $BIN_DIR/../conf/httpd.conf; test -f $BUILD_DIR/config/httpd.conf && cat $BUILD_DIR/config/httpd.conf; } > $APACHE_PATH/conf/httpd.conf
+
+# copy any apache modules from the build dir
+test -d $BUILD_DIR/apache_modules && cp $BUILD_DIR/apache_modules/* $APACHE_PATH/modules/
+
+cat >>boot.sh <<EOF
+  export LD_LIBRARY_PATH=/app/apache/lib/
+  if [ -n "$USERNAME" ] && [ -n "$PASSWORD" ]; then
+    /app/apache/bin/htpasswd -bc /app/.passwords \$USERNAME \$PASSWORD
+  fi
+  sed -i 's/Listen 80/Listen '\$PORT'/' /app/apache/conf/httpd.conf
+  echo "Launching apache"
+  exec /app/apache/bin/httpd -X
+EOF
+
+chmod +x boot.sh

@@ -11,15 +11,6 @@ set -e
 echo "---> Where am i?: `pwd`"
 echo "---> which ruby"
 echo "`which ruby`"
-echo "`ruby -v`"
-echo "`ls -la vendor`"
-echo $PATH
-
-echo "`cat ~/.profile.d/ruby.sh`"
-source ~/.profile.d/ruby.sh
-echo $PATH
-
-echo "ruby version: `ruby -v`"
 # debug
 # set -x
 
@@ -39,7 +30,4 @@ export PATH="$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby-2.0.0/bi
 
 echo $CACHE_DIR
 echo $PATH
-echo "`ls -la $CACHE_DIR/vendor/bundle`"
-chmod +x ~/.profile.d/ruby.sh
-~/.profile.d/ruby.sh
-echo "`ruby -v`"
+echo "`ls -la $CACHE_DIR/vendor/bundle/ruby`"

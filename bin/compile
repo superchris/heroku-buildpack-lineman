@@ -34,7 +34,7 @@ LP_DIR=`cd $(dirname $0); cd ..; pwd`
 export PATH="$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby-2.0.0/bin:$CACHE_DIR/vendor/ruby-2.0.0/bin:/app/bin:$PATH:$GEM_PATH/bin"
 
 echo $PATH
-echo "`ls -la $CACHE_DIR/vendor`"
+echo "`ls -la $CACHE_DIR/vendor/bundle`"
 echo "`ls -la $CACHE_DIR/vendor/ruby-2.0.0`"
 echo "`ls -la $CACHE_DIR/vendor/ruby-2.0.0/bin`"
 echo "ruby version: `ruby -v`"

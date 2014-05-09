@@ -8,6 +8,10 @@
 # fail fast
 set -e
 
+echo "---> which ruby"
+echo "`which ruby`"
+echo "`ruby -v`"
+
 # debug
 # set -x
 
@@ -309,6 +313,3 @@ cat >>boot.sh <<EOF
 EOF
 
 chmod +x boot.sh
-
-
-

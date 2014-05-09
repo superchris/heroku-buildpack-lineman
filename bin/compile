@@ -30,4 +30,5 @@ export PATH="$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby/2.0.0/bi
 
 echo $CACHE_DIR
 echo $PATH
+echo "`ls -la $CACHE_DIR/vendor/bundle/ruby/2.0.0`"
 echo "ruby version: `ruby -v`"

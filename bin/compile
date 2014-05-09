@@ -234,8 +234,25 @@ echo "export PATH=\"\$HOME/bin:\$HOME/node_modules/.bin:\$PATH\"" > $BUILD_DIR/.
 # build website with lineman
 cd $BUILD_DIR
 
-
 export PATH="$CACHE_DIR/vendor/bundle/bin:$CACHE_DIR/vendor/bundle/ruby/2.0.0/bin:$CACHE_DIR/vendor/ruby-2.0.0/bin:$PATH"
+
+# install Bundler and Sass gems unless enableSass is false
+if [ `$BUILD_DIR/node_modules/.bin/lineman config enableSass` != "false" ]
+then
+  echo "-----> Installing bundler and sass gems"
+  export GEM_HOME="$BUILD_DIR/gems"
+  export GEM_PATH=$GEM_HOME
+  mkdir -p $GEM_HOME
+  LANG="en_US.UTF-8" gem install bundler sass
+  export PATH="/app/bin:$PATH:$GEM_PATH/bin"
+fi
+
+
+if [ -e Gemfile ]
+then
+  echo "-----> Bundling gems"
+  bundle install
+fi
 
 echo "-----> Building static web assets with lineman"
 mkdir -p dist/js

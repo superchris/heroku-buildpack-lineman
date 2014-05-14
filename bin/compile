@@ -248,7 +248,7 @@ fi
 if [ -e Gemfile ]
 then
   echo "-----> Bundling gems"
-  bundle install
+  bundle install --binstubs
 fi
 
 echo "-----> Building static web assets with lineman"
